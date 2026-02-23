@@ -20,19 +20,19 @@ Lightweight Warp terminal integration for Codex notifications.
 1. Make the script executable:
 
 ```bash
-chmod +x "/path/to/codex-warp/warp-notify-codex.sh"
+chmod +x "/path/to/codex-warp/codex-warp.sh"
 ```
 
 2. Add this to `~/.codex/config.toml`:
 
 ```toml
-notify = ["/path/to/codex-warp/warp-notify-codex.sh"]
+notify = ["/path/to/codex-warp/codex-warp.sh"]
 ```
 
 Recommended default (send both in-app and desktop styles):
 
 ```toml
-notify = ["env", "CODEX_WARP_CHANNEL=both", "/path/to/codex-warp/warp-notify-codex.sh"]
+notify = ["env", "CODEX_WARP_CHANNEL=both", "/path/to/codex-warp/codex-warp.sh"]
 ```
 
 3. Restart Codex.
@@ -59,14 +59,14 @@ Notes:
 Send a test notification:
 
 ```bash
-"/path/to/codex-warp/warp-notify-codex.sh" --test
+"/path/to/codex-warp/codex-warp.sh" --test
 ```
 
 Send explicit channel tests:
 
 ```bash
-CODEX_WARP_CHANNEL=osc9 "/path/to/codex-warp/warp-notify-codex.sh" --test
-CODEX_WARP_CHANNEL=osc777 "/path/to/codex-warp/warp-notify-codex.sh" --test
+CODEX_WARP_CHANNEL=osc9 "/path/to/codex-warp/codex-warp.sh" --test
+CODEX_WARP_CHANNEL=osc777 "/path/to/codex-warp/codex-warp.sh" --test
 ```
 
 ## How It Works
