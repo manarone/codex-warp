@@ -86,3 +86,7 @@ When Codex fires the `notify` hook, this script:
 - Warp desktop notifications typically appear when Warp is not focused.
 - If no TTY is found, set `CODEX_WARP_TTY` explicitly to your active Warp pane device.
 - Use `CODEX_WARP_DEBUG=1` to see delivery logs.
+
+## Contributing
+
+Issues and pull requests are welcome.
