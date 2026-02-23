@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Codex notify hook that emits Warp-compatible OSC notifications.
 set -euo pipefail
 
 TITLE="${CODEX_WARP_TITLE:-Codex}"
