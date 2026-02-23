@@ -19,6 +19,11 @@ sanitize_for_osc() {
   LC_ALL=C tr '\000-\010\013\014\016-\037\177' ' ' | tr -s '[:space:]' ' '
 }
 
+sanitize_for_osc777_field() {
+  # OSC 777 uses semicolons as delimiters; replace them inside fields.
+  tr ';' ','
+}
+
 truncate_text() {
   local text="$1"
   local limit="$2"
@@ -166,6 +171,8 @@ emit_notification() {
   local body="$2"
   local tty_target=""
   local selected_channel="$CHANNEL"
+  local osc777_title=""
+  local osc777_body=""
 
   if ! tty_target="$(resolve_tty_target)"; then
     log_debug "No writable terminal target found; skipping notification."
@@ -178,6 +185,9 @@ emit_notification() {
     selected_channel="osc9"
   fi
 
+  osc777_title="$(printf "%s" "$title" | sanitize_for_osc777_field)"
+  osc777_body="$(printf "%s" "$body" | sanitize_for_osc777_field)"
+
   case "$selected_channel" in
     osc9)
       log_debug "Sending OSC 9 notification to $tty_target"
@@ -186,7 +196,7 @@ emit_notification() {
     osc777)
       if is_warp_terminal; then
         log_debug "Sending Warp OSC 777 notification to $tty_target"
-        printf '\033]777;notify;%s;%s\007' "$title" "$body" >"$tty_target" 2>/dev/null || true
+        printf '\033]777;notify;%s;%s\007' "$osc777_title" "$osc777_body" >"$tty_target" 2>/dev/null || true
       else
         log_debug "OSC 777 requested, but terminal is not Warp; falling back to OSC 9"
         printf '\033]9;%s\007' "$body" >"$tty_target" 2>/dev/null || true
@@ -196,7 +206,7 @@ emit_notification() {
       log_debug "Sending OSC 9 + OSC 777 notifications to $tty_target"
       printf '\033]9;%s\007' "$body" >"$tty_target" 2>/dev/null || true
       if is_warp_terminal; then
-        printf '\033]777;notify;%s;%s\007' "$title" "$body" >"$tty_target" 2>/dev/null || true
+        printf '\033]777;notify;%s;%s\007' "$osc777_title" "$osc777_body" >"$tty_target" 2>/dev/null || true
       fi
       ;;
     *)
