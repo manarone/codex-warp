@@ -1,3 +1,0 @@
-# Keep local notification test helpers out of the public repo.
-test-notification.sh
-scripts/test-notification.sh
