@@ -11,22 +11,20 @@ Lightweight bridge that sends Warp-native notifications when Codex finishes a tu
 
 ## Files
 
-- `scripts/warp-notify-codex.sh`: main notify hook command (used by Codex)
-- `scripts/test-notification.sh`: sends a local test notification
+- `warp-notify-codex.sh`: main notify hook command (used by Codex)
 
 ## Setup
 
-1. Make scripts executable:
+1. Make script executable:
 
 ```bash
-chmod +x "/Users/manar/Desktop/Projects/Codex - Warp Integration/scripts/warp-notify-codex.sh"
-chmod +x "/Users/manar/Desktop/Projects/Codex - Warp Integration/scripts/test-notification.sh"
+chmod +x "/Users/manar/Desktop/Projects/Codex - Warp Integration/warp-notify-codex.sh"
 ```
 
 2. Add this to `~/.codex/config.toml`:
 
 ```toml
-notify = ["/Users/manar/Desktop/Projects/Codex - Warp Integration/scripts/warp-notify-codex.sh"]
+notify = ["/Users/manar/Desktop/Projects/Codex - Warp Integration/warp-notify-codex.sh"]
 ```
 
 3. Optional TUI notifications (for approvals, etc.):
@@ -53,7 +51,7 @@ notification_method = "osc9"
 Run:
 
 ```bash
-"/Users/manar/Desktop/Projects/Codex - Warp Integration/scripts/test-notification.sh"
+"/Users/manar/Desktop/Projects/Codex - Warp Integration/warp-notify-codex.sh" --test
 ```
 
 If you are in Warp, you should see a notification.
