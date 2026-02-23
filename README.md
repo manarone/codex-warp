@@ -1,67 +1,88 @@
-# Codex + Warp Integration
+# Codex + Warp
 
-Lightweight bridge that sends Warp-native notifications when Codex finishes a turn.
+Lightweight Warp terminal integration for Codex notifications.
 
-## What this gives you
+## Features
 
-- Codex `notify` hook support
-- Warp notification via OSC escape sequences
+- Native Warp notifications via OSC sequences
 - Message preview from the latest Codex assistant response
-- Better hook reliability when stdin is redirected (auto TTY discovery)
+- Supports in-app notifications (`osc9`), desktop notifications (`osc777`), or both
+- Better reliability when stdin is redirected (auto TTY discovery)
 
-## Files
+## Requirements
 
-- `warp-notify-codex.sh`: main notify hook command (used by Codex)
+- [Warp terminal](https://warp.dev)
+- Codex CLI with `notify` hook support
+- `python3` (optional but recommended for richer JSON payload parsing)
 
-## Setup
+## Installation
 
-1. Make script executable:
+1. Make the script executable:
 
 ```bash
-chmod +x "/Users/manar/Desktop/Projects/Codex - Warp Integration/warp-notify-codex.sh"
+chmod +x "/path/to/codex-warp/warp-notify-codex.sh"
 ```
 
 2. Add this to `~/.codex/config.toml`:
 
 ```toml
-notify = ["/Users/manar/Desktop/Projects/Codex - Warp Integration/warp-notify-codex.sh"]
+notify = ["/path/to/codex-warp/warp-notify-codex.sh"]
 ```
 
-3. Optional TUI notifications (for approvals, etc.):
+Recommended default (send both in-app and desktop styles):
 
 ```toml
-[tui]
-notifications = ["approval-requested"]
-notification_method = "osc9"
+notify = ["env", "CODEX_WARP_CHANNEL=both", "/path/to/codex-warp/warp-notify-codex.sh"]
 ```
 
-4. Restart Codex.
+3. Restart Codex.
 
-## Optional environment variables
+## Configuration
 
-- `CODEX_WARP_TITLE`: notification title (default: `Codex`)
-- `CODEX_WARP_MAX_LEN`: max preview length (default: `200`)
-- `CODEX_WARP_FORCE=1`: force Warp-native OSC 777 notifications
-- `CODEX_WARP_TTY=/dev/ttysXXX`: explicit terminal device override (must be a TTY device path)
-- `CODEX_WARP_DEBUG=1`: debug logs to stderr
-- `CODEX_WARP_CHANNEL`: `auto` (default), `osc9`, `osc777`, or `both`
+Use environment variables to customize behavior:
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `CODEX_WARP_TITLE` | `Codex` | Notification title |
+| `CODEX_WARP_MAX_LEN` | `200` | Max message preview length |
+| `CODEX_WARP_CHANNEL` | `auto` | `auto`, `osc9`, `osc777`, or `both` |
+| `CODEX_WARP_TTY` | unset | Explicit TTY override, e.g. `/dev/ttys033` |
+| `CODEX_WARP_FORCE` | `0` | Force Warp detection for OSC 777 |
+| `CODEX_WARP_DEBUG` | `0` | Debug logs to stderr |
+
+Notes:
+- `auto` currently maps to `osc9`.
+- `CODEX_WARP_TTY` must point to a writable TTY character device.
 
 ## Test
 
-Run:
+Send a test notification:
 
 ```bash
-"/Users/manar/Desktop/Projects/Codex - Warp Integration/warp-notify-codex.sh" --test
+"/path/to/codex-warp/warp-notify-codex.sh" --test
 ```
 
-If you are in Warp, you should see a notification.
+Send explicit channel tests:
+
+```bash
+CODEX_WARP_CHANNEL=osc9 "/path/to/codex-warp/warp-notify-codex.sh" --test
+CODEX_WARP_CHANNEL=osc777 "/path/to/codex-warp/warp-notify-codex.sh" --test
+```
+
+## How It Works
+
+When Codex fires the `notify` hook, this script:
+
+1. Reads hook payload JSON (or plain text fallback)
+2. Extracts `last-assistant-message` (or a short fallback summary)
+3. Normalizes, sanitizes, and truncates content for safe OSC output
+4. Finds a writable TTY target (`/dev/tty`, tmux pane, SSH TTY, parent TTY)
+5. Emits Warp-compatible notification escape sequences
 
 ## Troubleshooting
 
-- `CODEX_WARP_CHANNEL=auto` defaults to `osc9` (Claude-like in-app toast behavior in Warp).
-- Use `CODEX_WARP_CHANNEL=osc777` for Warp desktop notifications.
-- Use `CODEX_WARP_CHANNEL=both` to send both in-app and desktop styles.
-- Warp desktop notifications (`osc777`) appear when Warp is not the active/focused app.
-- If notifications do not appear from the Codex hook, set `CODEX_WARP_FORCE=1`.
-- If your runtime has no controlling TTY, set `CODEX_WARP_TTY` to your Warp pane device (for example `/dev/ttys009`).
-- `CODEX_WARP_TTY` intentionally rejects non-TTY files for safety.
+- If notifications stopped after moving files, verify `notify` path in `~/.codex/config.toml`.
+- For desktop notifications, use `CODEX_WARP_CHANNEL=osc777` or `both`.
+- Warp desktop notifications typically appear when Warp is not focused.
+- If no TTY is found, set `CODEX_WARP_TTY` explicitly to your active Warp pane device.
+- Use `CODEX_WARP_DEBUG=1` to see delivery logs.
