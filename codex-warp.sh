@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Codex notify hook that emits Warp-compatible OSC notifications.
 set -euo pipefail
 
 TITLE="${CODEX_WARP_TITLE:-Codex}"
@@ -83,7 +84,7 @@ PY
 
 log_debug() {
   if [ "$DEBUG" = "1" ]; then
-    printf '[warp-notify] %s\n' "$1" >&2
+    printf '[codex-warp] %s\n' "$1" >&2
   fi
 }
 
