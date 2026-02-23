@@ -23,7 +23,7 @@ Lightweight Warp terminal integration for Codex notifications.
 chmod +x "/path/to/codex-warp/codex-warp.sh"
 ```
 
-2. Add this to `~/.codex/config.toml`:
+1. Add this to `~/.codex/config.toml`:
 
 ```toml
 notify = ["/path/to/codex-warp/codex-warp.sh"]
@@ -35,7 +35,7 @@ Recommended default (send both in-app and desktop styles):
 notify = ["env", "CODEX_WARP_CHANNEL=both", "/path/to/codex-warp/codex-warp.sh"]
 ```
 
-3. Restart Codex.
+1. Restart Codex.
 
 ## Configuration
 

@@ -84,7 +84,7 @@ PY
 
 log_debug() {
   if [ "$DEBUG" = "1" ]; then
-    printf '[warp-notify] %s\n' "$1" >&2
+    printf '[codex-warp] %s\n' "$1" >&2
   fi
 }
 
