@@ -104,6 +104,60 @@ test_json_input_fallback_summary() {
   assert_eq 'Completed: "Ship it"' "$(extract_message '{"input-messages":["Ship it"]}')" "first input summary is used when assistant text is missing"
 }
 
+test_notification_fields_include_prompt_and_event_title() {
+  local fields=""
+  local title=""
+  local message=""
+  local IFS=$'\036'
+
+  fields="$(extract_notification_fields "Codex" '{"type":"agent-turn-complete","input-messages":["Ship it"],"last-assistant-message":"Done and pushed."}')"
+  read -r title message <<<"$fields"
+
+  assert_eq "Codex finished" "$title" "completion title is event-aware"
+  assert_eq '"Ship it" -> Done and pushed.' "$message" "message includes prompt and response"
+}
+
+test_notification_fields_can_request_input() {
+  local fields=""
+  local title=""
+  local message=""
+  local IFS=$'\036'
+
+  fields="$(extract_notification_fields "Codex" '{"type":"input-request","input-messages":["Approve deploy"]}')"
+  read -r title message <<<"$fields"
+
+  assert_eq "Codex needs input" "$title" "input event title is specific"
+  assert_eq 'Input needed for "Approve deploy"' "$message" "input event body is specific"
+}
+
+test_compact_notification_body_splits_budget() {
+  local body=""
+
+  body="$(compact_notification_body '"please audit this codebase is it good to ship?" -> Great. The richer title/body format plus the desktop time token seems to have fixed the repeat-notification problem.' 72)"
+  assert_eq '"please audit this co... -> Great. The richer title/body format plus ...' "$body" "compact body preserves both prompt and response"
+}
+
+test_should_notify_payload_filters_unknown_events() {
+  if command -v python3 >/dev/null 2>&1; then
+    if should_notify_payload '{"type":"telemetry-heartbeat"}'; then
+      printf 'FAIL: unknown event payload should be skipped\n' >&2
+      exit 1
+    fi
+
+    if ! should_notify_payload '{"type":"agent-turn-complete"}'; then
+      printf 'FAIL: agent turn complete should notify\n' >&2
+      exit 1
+    fi
+
+    if should_notify_payload '{"type":"agent-turn-complete","source":"subagent"}'; then
+      printf 'FAIL: subagent-marked payload should be skipped\n' >&2
+      exit 1
+    fi
+  fi
+
+  printf 'PASS: notification payload filter behaves as expected\n'
+}
+
 test_read_payload_from_stdin() {
   local output=""
 
@@ -136,6 +190,10 @@ main() {
   test_osc777_field_sanitization
   test_json_extraction_without_python
   test_json_input_fallback_summary
+  test_notification_fields_include_prompt_and_event_title
+  test_notification_fields_can_request_input
+  test_compact_notification_body_splits_budget
+  test_should_notify_payload_filters_unknown_events
   test_read_payload_from_stdin
   test_doctor_reports_config_and_effective_channel
   printf 'All tests passed.\n'

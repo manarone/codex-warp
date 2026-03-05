@@ -5,11 +5,12 @@ Lightweight Warp terminal integration for Codex notifications.
 ## Features
 
 - Native Warp notifications via OSC sequences
-- Message preview from the latest Codex assistant response
+- Message preview built from the prompt and latest Codex assistant response
 - Supports in-app notifications (`osc9`), desktop notifications (`osc777`), or both
 - Better reliability when stdin is redirected (auto TTY discovery)
 - Smarter `auto` mode that prefers both in-app and desktop notifications in Warp
 - Built-in `--doctor` diagnostics for setup troubleshooting
+- Desktop notifications include a short time token by default to reduce duplicate suppression
 
 ## Requirements
 
@@ -51,11 +52,13 @@ Use environment variables to customize behavior:
 | `CODEX_WARP_TTY` | unset | Explicit TTY override, e.g. `/dev/ttys033` |
 | `CODEX_WARP_FORCE` | `0` | Force Warp detection for OSC 777 |
 | `CODEX_WARP_DEBUG` | `0` | Debug logs to stderr |
+| `CODEX_WARP_DESKTOP_TOKEN` | `1` | Append `[HH:MM:SS]` to OSC 777 titles to keep desktop notifications distinct |
 
 Notes:
 - `auto` prefers `both` inside Warp and falls back to `osc9` elsewhere.
 - `CODEX_WARP_TTY` must point to a writable TTY character device.
 - For `osc777`, semicolons in the title/body are normalized for Warp compatibility.
+- When structured payload data is available, notifications are summarized as `"prompt" -> response`.
 - If no JSON runtime is available, hook payloads are treated as plain text.
 
 ## Test
@@ -99,10 +102,11 @@ When Codex fires the `notify` hook, this script:
 1. Reads hook payload JSON (or plain text fallback)
    It accepts the payload as an argument or from stdin.
 2. Extracts `last-assistant-message` (or a short fallback summary)
-3. Normalizes, sanitizes, and truncates content for safe OSC output
-4. Finds a writable TTY target (`/dev/tty`, tmux pane, SSH TTY, parent TTY)
-5. Chooses the best notification channel for the current terminal
-6. Emits Warp-compatible notification escape sequences
+3. Builds an event-aware title and a `"prompt" -> response` style summary when possible
+4. Normalizes, sanitizes, and truncates content for safe OSC output
+5. Finds a writable TTY target (`/dev/tty`, tmux pane, SSH TTY, parent TTY)
+6. Chooses the best notification channel for the current terminal
+7. Emits Warp-compatible notification escape sequences
 
 ## Troubleshooting
 

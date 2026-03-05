@@ -14,11 +14,12 @@ esac
 SCRIPT_PATH="$SCRIPT_DIR/${SCRIPT_SOURCE##*/}"
 DEFAULT_TEST_PAYLOAD='{"type":"agent-turn-complete","input-messages":["Test notification"],"last-assistant-message":"Codex notify hook is connected."}'
 TITLE="${CODEX_WARP_TITLE:-Codex}"
-MAX_LEN="${CODEX_WARP_MAX_LEN:-200}"
+MAX_LEN="${CODEX_WARP_MAX_LEN:-140}"
 FORCE_WARP="${CODEX_WARP_FORCE:-0}"
 TTY_OVERRIDE="${CODEX_WARP_TTY:-}"
 DEBUG="${CODEX_WARP_DEBUG:-0}"
 CHANNEL="${CODEX_WARP_CHANNEL:-auto}"
+DESKTOP_TOKEN="${CODEX_WARP_DESKTOP_TOKEN:-1}"
 
 print_usage() {
   cat <<EOF
@@ -64,6 +65,59 @@ truncate_text() {
   fi
 }
 
+compact_notification_body() {
+  local body="$1"
+  local limit="$2"
+  local separator=' -> '
+  local left=""
+  local right=""
+  local separator_len=4
+  local prompt_budget=0
+  local response_budget=0
+
+  if [ "${#body}" -le "$limit" ]; then
+    printf "%s" "$body"
+    return 0
+  fi
+
+  if [[ "$body" != *"$separator"* ]]; then
+    truncate_text "$body" "$limit"
+    return 0
+  fi
+
+  left="${body%%"$separator"*}"
+  right="${body#*"$separator"}"
+
+  if [ "$limit" -le 24 ]; then
+    truncate_text "$body" "$limit"
+    return 0
+  fi
+
+  prompt_budget=$((limit / 3))
+  if [ "$prompt_budget" -lt 18 ]; then
+    prompt_budget=18
+  fi
+  if [ "$prompt_budget" -gt 40 ]; then
+    prompt_budget=40
+  fi
+
+  response_budget=$((limit - separator_len - prompt_budget))
+  if [ "$response_budget" -lt 18 ]; then
+    response_budget=18
+    prompt_budget=$((limit - separator_len - response_budget))
+  fi
+
+  if [ "$prompt_budget" -lt 8 ]; then
+    truncate_text "$body" "$limit"
+    return 0
+  fi
+
+  printf "%s%s%s" \
+    "$(truncate_text "$left" "$prompt_budget")" \
+    "$separator" \
+    "$(truncate_text "$right" "$response_budget")"
+}
+
 sanitize_for_osc777_field() {
   # Warp's OSC 777 parser uses ';' as a field delimiter, so semicolons in the
   # title/body need to be normalized before interpolation.
@@ -105,6 +159,85 @@ else:
 PY
 }
 
+extract_notification_fields_with_python() {
+  local title_base="$1"
+  local payload="$2"
+  python3 - "$title_base" "$payload" <<'PY'
+import json
+import re
+import sys
+
+title_base = sys.argv[1]
+raw = sys.argv[2]
+SEP = "\x1e"
+
+def normalize(value):
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+def title_for(event_type):
+    lower = normalize(event_type).lower()
+    if any(token in lower for token in ("error", "fail")):
+        suffix = "error"
+    elif any(token in lower for token in ("input", "approval", "auth", "confirm")):
+        suffix = "needs input"
+    elif any(token in lower for token in ("start", "session-start")):
+        suffix = "started"
+    elif any(token in lower for token in ("complete", "stop", "finish", "done")):
+        suffix = "finished"
+    else:
+        suffix = "update"
+    return f"{title_base} {suffix}"
+
+def body_for(event_type, prompt, assistant):
+    title = title_for(event_type)
+    if prompt and assistant:
+        if assistant == prompt:
+            return assistant
+        return f'"{prompt}" -> {assistant}'
+    if assistant:
+        return assistant
+    if prompt:
+        if title.endswith("needs input"):
+            return f'Input needed for "{prompt}"'
+        if title.endswith("started"):
+            return f'Started: "{prompt}"'
+        return f'Completed: "{prompt}"'
+    if title.endswith("needs input"):
+        return "Codex needs your input."
+    if title.endswith("started"):
+        return "Codex session started."
+    if title.endswith("error"):
+        return "Codex reported an error."
+    if title.endswith("finished"):
+        return "Agent turn complete"
+    return "Agent update available"
+
+try:
+    data = json.loads(raw)
+except Exception:
+    text = normalize(raw) or "Agent turn complete"
+    print(title_for(""), end=SEP)
+    print(text, end="")
+    raise SystemExit(0)
+
+if not isinstance(data, dict):
+    text = normalize(raw) or "Agent turn complete"
+    print(title_for(""), end=SEP)
+    print(text, end="")
+    raise SystemExit(0)
+
+event_type = data.get("type") or ""
+assistant = normalize(data.get("last-assistant-message") or "")
+inputs = data.get("input-messages") or []
+prompt = ""
+if isinstance(inputs, list) and inputs:
+    prompt = normalize(inputs[0])
+
+print(title_for(event_type), end=SEP)
+print(body_for(event_type, prompt, assistant), end="")
+PY
+}
+
 extract_message_with_perl() {
   local payload="$1"
   perl -MJSON::PP -e '
@@ -136,6 +269,78 @@ extract_message_with_perl() {
       print "Agent turn complete";
     }
   ' "$payload"
+}
+
+extract_notification_fields_with_perl() {
+  local title_base="$1"
+  local payload="$2"
+  perl -MJSON::PP -e '
+    my ($title_base, $raw) = @ARGV;
+    my $sep = "\x1e";
+
+    sub normalize {
+      my ($value) = @_;
+      $value = defined $value ? "$value" : "";
+      $value =~ s/\s+/ /g;
+      $value =~ s/^ +| +$//g;
+      return $value;
+    }
+
+    sub title_for {
+      my ($event_type) = @_;
+      my $lower = lc normalize($event_type);
+      my $suffix = "update";
+      if ($lower =~ /(error|fail)/) {
+        $suffix = "error";
+      } elsif ($lower =~ /(input|approval|auth|confirm)/) {
+        $suffix = "needs input";
+      } elsif ($lower =~ /(start|session-start)/) {
+        $suffix = "started";
+      } elsif ($lower =~ /(complete|stop|finish|done)/) {
+        $suffix = "finished";
+      }
+      return "$title_base $suffix";
+    }
+
+    sub body_for {
+      my ($event_type, $prompt, $assistant) = @_;
+      my $title = title_for($event_type);
+
+      if (length($prompt) && length($assistant)) {
+        return $assistant if $assistant eq $prompt;
+        return qq{"$prompt" -> $assistant};
+      }
+      return $assistant if length($assistant);
+      if (length($prompt)) {
+        return qq{Input needed for "$prompt"} if $title =~ /needs input$/;
+        return qq{Started: "$prompt"} if $title =~ /started$/;
+        return qq{Completed: "$prompt"};
+      }
+      return "Codex needs your input." if $title =~ /needs input$/;
+      return "Codex session started." if $title =~ /started$/;
+      return "Codex reported an error." if $title =~ /error$/;
+      return "Agent turn complete" if $title =~ /finished$/;
+      return "Agent update available";
+    }
+
+    my $data = eval { JSON::PP::decode_json($raw) };
+    if ($@ || ref($data) ne "HASH") {
+      my $text = normalize($raw);
+      $text = "Agent turn complete" unless length($text);
+      print title_for(""), $sep, $text;
+      exit 0;
+    }
+
+    my $event_type = $data->{"type"} // "";
+    my $assistant = normalize($data->{"last-assistant-message"} // "");
+    my $inputs = $data->{"input-messages"};
+    my $prompt = "";
+    if (ref($inputs) eq "ARRAY" && @{$inputs}) {
+      $prompt = normalize($inputs->[0]);
+    }
+
+    print title_for($event_type), $sep, body_for($event_type, $prompt, $assistant);
+  ' "$title_base" "$payload"
 }
 
 extract_message_with_node() {
@@ -259,6 +464,100 @@ extract_message() {
 
   # Fallback without any available JSON parser.
   printf "%s" "$payload"
+}
+
+default_title_for_event() {
+  local title_base="$1"
+  local event_type="${2:-}"
+  local lower_type=""
+  local suffix="update"
+
+  lower_type="$(printf "%s" "$event_type" | tr '[:upper:]' '[:lower:]')"
+  if printf "%s" "$lower_type" | grep -Eq 'error|fail'; then
+    suffix="error"
+  elif printf "%s" "$lower_type" | grep -Eq 'input|approval|auth|confirm'; then
+    suffix="needs input"
+  elif printf "%s" "$lower_type" | grep -Eq 'start|session-start'; then
+    suffix="started"
+  elif printf "%s" "$lower_type" | grep -Eq 'complete|stop|finish|done'; then
+    suffix="finished"
+  fi
+
+  printf "%s %s" "$title_base" "$suffix"
+}
+
+should_notify_payload_with_python() {
+  local payload="$1"
+  python3 - "$payload" <<'PY'
+import json
+import sys
+
+raw = sys.argv[1]
+
+try:
+    data = json.loads(raw)
+except Exception:
+    print("notify")
+    raise SystemExit(0)
+
+if not isinstance(data, dict):
+    print("notify")
+    raise SystemExit(0)
+
+event_type = str(data.get("type") or "").strip().lower()
+source = str(data.get("source") or data.get("origin") or "").strip().lower()
+kind = str(data.get("agent-kind") or data.get("agent_kind") or "").strip().lower()
+
+if source in {"subagent", "sub-agent"} or kind in {"subagent", "sub-agent"}:
+    print("skip")
+elif event_type.startswith("agent-turn-") or any(token in event_type for token in ("input", "approval", "auth", "confirm", "error", "fail", "start", "stop", "finish", "done")):
+    print("notify")
+else:
+    print("skip")
+PY
+}
+
+should_notify_payload() {
+  local payload="$1"
+  local verdict=""
+
+  if [ -z "$payload" ]; then
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    verdict="$(should_notify_payload_with_python "$payload")"
+    if [ "$verdict" = "notify" ]; then
+      return 0
+    fi
+    return 1
+  fi
+
+  return 0
+}
+
+extract_notification_fields() {
+  local title_base="$1"
+  local payload="$2"
+  local message=""
+
+  if [ -z "$payload" ]; then
+    printf '%s\036%s' "$(default_title_for_event "$title_base" "agent-turn-complete")" "Agent turn complete"
+    return 0
+  fi
+
+  if command -v python3 >/dev/null 2>&1; then
+    extract_notification_fields_with_python "$title_base" "$payload"
+    return 0
+  fi
+
+  if command -v perl >/dev/null 2>&1; then
+    extract_notification_fields_with_perl "$title_base" "$payload"
+    return 0
+  fi
+
+  message="$(extract_message "$payload")"
+  printf '%s\036%s' "$(default_title_for_event "$title_base" "")" "$message"
 }
 
 log_debug() {
@@ -474,6 +773,7 @@ emit_notification() {
   local selected_channel="${4:-$CHANNEL}"
   local osc777_title=""
   local osc777_body=""
+  local timestamp_suffix=""
 
   if [ -z "$tty_target" ] && ! tty_target="$(resolve_tty_target)"; then
     log_debug "No writable terminal target found; skipping notification."
@@ -484,6 +784,10 @@ emit_notification() {
 
   osc777_title="$(printf "%s" "$title" | sanitize_for_osc777_field)"
   osc777_body="$(printf "%s" "$body" | sanitize_for_osc777_field)"
+  if [ "$DESKTOP_TOKEN" = "1" ]; then
+    timestamp_suffix="$(date '+ [%H:%M:%S]' 2>/dev/null || true)"
+    osc777_title="${osc777_title}${timestamp_suffix}"
+  fi
 
   case "$selected_channel" in
     osc9)
@@ -563,12 +867,25 @@ main() {
   fi
 
   if ! [[ "$MAX_LEN" =~ ^[0-9]+$ ]]; then
-    MAX_LEN=200
+    MAX_LEN=140
   fi
 
+  if ! should_notify_payload "$payload"; then
+    log_debug "Skipping payload because it does not match top-level notification events."
+    return 0
+  fi
+
+  local normalized_title=""
+  local extracted_fields=""
+  local MESSAGE=""
+  local IFS=$'\036'
+
+  normalized_title="$(printf "%s" "$TITLE" | normalize_text | sanitize_for_osc)"
+  extracted_fields="$(extract_notification_fields "$normalized_title" "$payload")"
+  read -r TITLE MESSAGE <<<"$extracted_fields"
   TITLE="$(printf "%s" "$TITLE" | normalize_text | sanitize_for_osc)"
-  MESSAGE="$(extract_message "$payload" | normalize_text | sanitize_for_osc)"
-  MESSAGE="$(truncate_text "$MESSAGE" "$MAX_LEN")"
+  MESSAGE="$(printf "%s" "$MESSAGE" | normalize_text | sanitize_for_osc)"
+  MESSAGE="$(compact_notification_body "$MESSAGE" "$MAX_LEN")"
 
   emit_notification "$TITLE" "$MESSAGE"
 }
