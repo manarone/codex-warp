@@ -13,7 +13,7 @@ Lightweight Warp terminal integration for Codex notifications.
 
 - [Warp terminal](https://warp.dev)
 - Codex CLI with `notify` hook support
-- `python3` (optional but recommended for richer JSON payload parsing)
+- A JSON-capable runtime for structured hook payloads: `python3` (recommended), `perl`, `node`, `ruby`, or `jq`
 
 ## Installation
 
@@ -44,7 +44,7 @@ Use environment variables to customize behavior:
 | Variable | Default | Description |
 | --- | --- | --- |
 | `CODEX_WARP_TITLE` | `Codex` | Notification title |
-| `CODEX_WARP_MAX_LEN` | `200` | Max message preview length |
+| `CODEX_WARP_MAX_LEN` | `200` | Max message preview length (`0` disables the preview body) |
 | `CODEX_WARP_CHANNEL` | `auto` | `auto`, `osc9`, `osc777`, or `both` |
 | `CODEX_WARP_TTY` | unset | Explicit TTY override, e.g. `/dev/ttys033` |
 | `CODEX_WARP_FORCE` | `0` | Force Warp detection for OSC 777 |
@@ -53,6 +53,8 @@ Use environment variables to customize behavior:
 Notes:
 - `auto` currently maps to `osc9`.
 - `CODEX_WARP_TTY` must point to a writable TTY character device.
+- For `osc777`, semicolons in the title/body are normalized for Warp compatibility.
+- If no JSON runtime is available, hook payloads are treated as plain text.
 
 ## Test
 
@@ -67,6 +69,12 @@ Send explicit channel tests:
 ```bash
 CODEX_WARP_CHANNEL=osc9 "/path/to/codex-warp/codex-warp.sh" --test
 CODEX_WARP_CHANNEL=osc777 "/path/to/codex-warp/codex-warp.sh" --test
+```
+
+Run the local regression suite:
+
+```bash
+./tests/test-warp-notify.sh
 ```
 
 ## How It Works
