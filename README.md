@@ -69,7 +69,7 @@ Send a test notification:
 Pipe a payload through stdin:
 
 ```bash
-printf '%s' '{"last-assistant-message":"Hello from stdin"}' | "/path/to/codex-warp/warp-notify-codex.sh"
+printf '%s' '{"last-assistant-message":"Hello from stdin"}' | "/path/to/codex-warp/codex-warp.sh"
 ```
 
 Send explicit channel tests:
@@ -88,8 +88,8 @@ Run the local regression suite:
 Run setup diagnostics:
 
 ```bash
-"/path/to/codex-warp/warp-notify-codex.sh" --doctor
-"/path/to/codex-warp/warp-notify-codex.sh" --doctor --send-test
+"/path/to/codex-warp/codex-warp.sh" --doctor
+"/path/to/codex-warp/codex-warp.sh" --doctor --send-test
 ```
 
 ## How It Works

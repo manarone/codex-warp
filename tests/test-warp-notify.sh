@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-# shellcheck source=../warp-notify-codex.sh
-. "$ROOT_DIR/warp-notify-codex.sh"
+# shellcheck source=../codex-warp.sh
+. "$ROOT_DIR/codex-warp.sh"
 
 assert_eq() {
   local expected="$1"
@@ -92,7 +92,7 @@ test_json_extraction_without_python() {
   ln -s /usr/bin/perl "$test_bin/perl"
 
   output="$(PATH="$test_bin" bash -c '. "$1"; extract_message "$2"' _ \
-    "$ROOT_DIR/warp-notify-codex.sh" \
+    "$ROOT_DIR/codex-warp.sh" \
     '{"last-assistant-message":"Hello from perl fallback","input-messages":["ignored"]}')"
 
   rm -rf "$test_bin"
@@ -107,7 +107,7 @@ test_json_input_fallback_summary() {
 test_read_payload_from_stdin() {
   local output=""
 
-  output="$(printf '%s' '{"last-assistant-message":"stdin payload"}' | bash -c '. "$1"; read_payload ""' _ "$ROOT_DIR/warp-notify-codex.sh")"
+  output="$(printf '%s' '{"last-assistant-message":"stdin payload"}' | bash -c '. "$1"; read_payload ""' _ "$ROOT_DIR/codex-warp.sh")"
   assert_eq '{"last-assistant-message":"stdin payload"}' "$output" "payload can be read from stdin"
 }
 
@@ -117,10 +117,10 @@ test_doctor_reports_config_and_effective_channel() {
 
   temp_home="$(mktemp -d)"
   mkdir -p "$temp_home/.codex"
-  printf 'notify = ["env", "CODEX_WARP_CHANNEL=both", "%s"]\n' "$ROOT_DIR/warp-notify-codex.sh" > "$temp_home/.codex/config.toml"
+  printf 'notify = ["env", "CODEX_WARP_CHANNEL=both", "%s"]\n' "$ROOT_DIR/codex-warp.sh" > "$temp_home/.codex/config.toml"
 
   output="$(HOME="$temp_home" TERM_PROGRAM=WarpTerminal WARP_IS_LOCAL_SHELL_SESSION=1 CODEX_WARP_TTY=/dev/null CODEX_WARP_CHANNEL=auto \
-    bash -c '. "$1"; run_doctor 0' _ "$ROOT_DIR/warp-notify-codex.sh")"
+    bash -c '. "$1"; run_doctor 0' _ "$ROOT_DIR/codex-warp.sh")"
 
   rm -rf "$temp_home"
 
