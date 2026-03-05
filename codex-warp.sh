@@ -2,12 +2,38 @@
 # Codex notify hook that emits Warp-compatible OSC notifications.
 set -euo pipefail
 
+SCRIPT_SOURCE="${BASH_SOURCE[0]}"
+case "$SCRIPT_SOURCE" in
+  */*)
+    SCRIPT_DIR="$(cd "${SCRIPT_SOURCE%/*}" && pwd -P)"
+    ;;
+  *)
+    SCRIPT_DIR="$(pwd -P)"
+    ;;
+esac
+SCRIPT_PATH="$SCRIPT_DIR/${SCRIPT_SOURCE##*/}"
+DEFAULT_TEST_PAYLOAD='{"type":"agent-turn-complete","input-messages":["Test notification"],"last-assistant-message":"Codex notify hook is connected."}'
 TITLE="${CODEX_WARP_TITLE:-Codex}"
 MAX_LEN="${CODEX_WARP_MAX_LEN:-200}"
 FORCE_WARP="${CODEX_WARP_FORCE:-0}"
 TTY_OVERRIDE="${CODEX_WARP_TTY:-}"
 DEBUG="${CODEX_WARP_DEBUG:-0}"
 CHANNEL="${CODEX_WARP_CHANNEL:-auto}"
+
+print_usage() {
+  cat <<EOF
+Usage:
+  ${SCRIPT_PATH##*/} [payload-json-or-text]
+  ${SCRIPT_PATH##*/} --test
+  ${SCRIPT_PATH##*/} --doctor [--send-test]
+
+Options:
+  --test       Send a built-in sample notification payload.
+  --doctor     Print environment and config diagnostics for this hook.
+  --send-test  With --doctor, also send an OSC 9 + OSC 777 sample notification.
+  --help       Show this help text.
+EOF
+}
 
 normalize_text() {
   tr '\r\n' ' ' | tr -s '[:space:]' ' ' | sed -E 's/^ +| +$//g'
@@ -314,24 +340,147 @@ is_warp_terminal() {
   return 1
 }
 
+resolve_notification_channel() {
+  local selected_channel="$1"
+
+  selected_channel="$(printf "%s" "$selected_channel" | tr '[:upper:]' '[:lower:]')"
+  if [ "$selected_channel" = "auto" ]; then
+    if is_warp_terminal; then
+      selected_channel="both"
+    else
+      selected_channel="osc9"
+    fi
+  fi
+
+  printf "%s" "$selected_channel"
+}
+
+read_payload() {
+  local payload="${1:-}"
+
+  if [ -n "$payload" ]; then
+    printf "%s" "$payload"
+    return 0
+  fi
+
+  if [ ! -t 0 ]; then
+    cat
+    return 0
+  fi
+
+  return 0
+}
+
+config_mentions_script() {
+  local config_path="$1"
+
+  if [ ! -f "$config_path" ]; then
+    printf "missing"
+    return 0
+  fi
+
+  if grep -Fq "$SCRIPT_PATH" "$config_path"; then
+    printf "exact"
+    return 0
+  fi
+
+  if grep -Fq "${SCRIPT_PATH##*/}" "$config_path"; then
+    printf "basename-only"
+    return 0
+  fi
+
+  printf "absent"
+}
+
+run_doctor() {
+  local send_test="${1:-0}"
+  local tty_target=""
+  local config_path="${HOME:-}/.codex/config.toml"
+  local config_status=""
+  local warp_status="no"
+  local effective_channel=""
+  local executable_status="no"
+
+  if is_warp_terminal; then
+    warp_status="yes"
+  fi
+
+  if [ -x "$SCRIPT_PATH" ]; then
+    executable_status="yes"
+  fi
+
+  if tty_target="$(resolve_tty_target)"; then
+    :
+  else
+    tty_target="unresolved"
+  fi
+
+  effective_channel="$(resolve_notification_channel "$CHANNEL")"
+  config_status="$(config_mentions_script "$config_path")"
+
+  printf 'Warp Notify Doctor\n'
+  printf 'script_path: %s\n' "$SCRIPT_PATH"
+  printf 'script_executable: %s\n' "$executable_status"
+  printf 'term_program: %s\n' "${TERM_PROGRAM:-}"
+  printf 'warp_detected: %s\n' "$warp_status"
+  printf 'configured_channel: %s\n' "$CHANNEL"
+  printf 'effective_channel: %s\n' "$effective_channel"
+  printf 'tty_override: %s\n' "${TTY_OVERRIDE:-unset}"
+  printf 'resolved_tty: %s\n' "$tty_target"
+  printf 'stdin_is_tty: '
+  if [ -t 0 ]; then
+    printf 'yes\n'
+  else
+    printf 'no\n'
+  fi
+  printf 'config_path: %s\n' "$config_path"
+  printf 'config_status: %s\n' "$config_status"
+
+  case "$config_status" in
+    exact)
+      printf 'config_hint: notify hook references this exact script path.\n'
+      ;;
+    basename-only)
+      printf 'config_hint: config mentions the script name, but not this exact path.\n'
+      ;;
+    absent)
+      printf 'config_hint: config exists, but this script path was not found.\n'
+      ;;
+    missing)
+      printf 'config_hint: ~/.codex/config.toml was not found.\n'
+      ;;
+  esac
+
+  if [ "$tty_target" = "unresolved" ]; then
+    printf 'doctor_result: no writable TTY target was found. Set CODEX_WARP_TTY to your Warp pane device.\n'
+  elif [ "$effective_channel" = "osc9" ]; then
+    printf 'doctor_result: in-app notifications should work. Desktop notifications need CODEX_WARP_CHANNEL=both or osc777.\n'
+  else
+    printf 'doctor_result: Warp desktop notifications should be available when Warp is unfocused.\n'
+  fi
+
+  if [ "$send_test" = "1" ]; then
+    printf 'doctor_action: sending sample notifications now.\n'
+    emit_notification "$TITLE" "Doctor test from Codex Warp notify." "$tty_target" "both"
+  else
+    printf 'doctor_action: rerun with --doctor --send-test to send in-app and desktop samples.\n'
+  fi
+}
+
 emit_notification() {
   local title="$1"
   local body="$2"
-  local tty_target=""
-  local selected_channel="$CHANNEL"
+  local tty_target="${3:-}"
+  local selected_channel="${4:-$CHANNEL}"
   local osc777_title=""
   local osc777_body=""
 
-  if ! tty_target="$(resolve_tty_target)"; then
+  if [ -z "$tty_target" ] && ! tty_target="$(resolve_tty_target)"; then
     log_debug "No writable terminal target found; skipping notification."
     return 0
   fi
 
-  selected_channel="$(printf "%s" "$selected_channel" | tr '[:upper:]' '[:lower:]')"
-  if [ "$selected_channel" = "auto" ]; then
-    # Claude-style default: Warp in-app toast via OSC 9.
-    selected_channel="osc9"
-  fi
+  selected_channel="$(resolve_notification_channel "$selected_channel")"
 
   osc777_title="$(printf "%s" "$title" | sanitize_for_osc777_field)"
   osc777_body="$(printf "%s" "$body" | sanitize_for_osc777_field)"
@@ -365,10 +514,52 @@ emit_notification() {
 }
 
 main() {
-  local payload="${1:-}"
+  local payload_arg=""
+  local payload=""
+  local mode="notify"
+  local send_test="0"
 
-  if [ "${1:-}" = "--test" ]; then
-    payload='{"type":"agent-turn-complete","input-messages":["Test notification"],"last-assistant-message":"Codex notify hook is connected."}'
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --test)
+        mode="test"
+        ;;
+      --doctor)
+        mode="doctor"
+        ;;
+      --send-test)
+        send_test="1"
+        ;;
+      --help|-h)
+        print_usage
+        return 0
+        ;;
+      --*)
+        printf 'Unknown option: %s\n' "$1" >&2
+        print_usage >&2
+        return 1
+        ;;
+      *)
+        if [ -n "$payload_arg" ]; then
+          printf 'Unexpected extra argument: %s\n' "$1" >&2
+          print_usage >&2
+          return 1
+        fi
+        payload_arg="$1"
+        ;;
+    esac
+    shift
+  done
+
+  if [ "$mode" = "doctor" ]; then
+    run_doctor "$send_test"
+    return 0
+  fi
+
+  if [ "$mode" = "test" ]; then
+    payload="$DEFAULT_TEST_PAYLOAD"
+  else
+    payload="$(read_payload "$payload_arg")"
   fi
 
   if ! [[ "$MAX_LEN" =~ ^[0-9]+$ ]]; then
